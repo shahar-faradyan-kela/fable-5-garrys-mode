@@ -11,6 +11,7 @@ Change this file = tell the other dev first.
 |---|---|
 | `POST /api/jobs` — multipart, field `video` | `201 { "jobId": "abc123" }` · `400 { "error": "..." }` when the video is over 3 min or under 1080p |
 | `GET /api/jobs/{jobId}` | `Job` (below) · `404` when unknown |
+| `GET /api/jobs/latest` | the newest `Job` · `404` when there is none. The big screen polls this to notice a phone upload |
 | `GET /files/...` | static files: extracted frames, splat worlds |
 
 ## Job
@@ -33,6 +34,13 @@ interface Job {
   error: null | string;
 }
 ```
+
+## The phone (added 19:35)
+
+- The phone opens `http://<laptop-ip>:5173/#phone` and posts to the same `POST /api/jobs`, with an extra form field `source=phone`.
+- So the server listens on `0.0.0.0`, CORS allows any origin, and every URL it returns is built from the request's host, never a hard-coded `localhost`.
+- The `video` field may hold a **photo**: treat it as the single frame, skip ffmpeg and the length check.
+- iPhones re-encode library videos to 720p: the minimum resolution is **720p**, not 1080p.
 
 ## Rules
 

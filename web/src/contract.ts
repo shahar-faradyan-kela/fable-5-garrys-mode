@@ -1,5 +1,6 @@
 // Mirrors CONTRACT.md. Change both or neither.
-export const API = import.meta.env.VITE_API ?? "http://localhost:8000";
+// Same host as the page, so a phone on the LAN reaches the server the laptop runs.
+export const API = import.meta.env.VITE_API ?? `http://${window.location.hostname}:8000`;
 
 export type Stage =
   | "queued"
@@ -30,6 +31,14 @@ export interface Job {
 export async function getJob(id: string): Promise<Job> {
   const res = await fetch(`${API}/api/jobs/${id}`);
   if (!res.ok) throw new Error(`job ${id}: ${res.status}`);
+  return res.json();
+}
+
+// The newest job on the server, or null. This is how the big screen notices a phone upload.
+export async function getLatestJob(): Promise<Job | null> {
+  const res = await fetch(`${API}/api/jobs/latest`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`latest job: ${res.status}`);
   return res.json();
 }
 
