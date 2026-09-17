@@ -1,0 +1,13 @@
+[project]
+name = "dropin-server"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.6.0",
+    "fastapi>=0.141.1",
+    "imageio-ffmpeg>=0.6.0",
+    "python-dotenv>=1.2.3",
+    "python-multipart>=0.0.32",
+    "uvicorn[standard]>=0.53.0",
+]
