@@ -11,6 +11,12 @@ const lanIp =
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  server: { host: true, port: 5173, strictPort: true },
+  server: {
+    host: true,
+    port: 5173,
+    strictPort: true,
+    // The phone talks to the web server only; it forwards to FastAPI. No CORS, no second address to reach.
+    proxy: { '/api': 'http://localhost:8000', '/files': 'http://localhost:8000' },
+  },
   define: { __LAN_IP__: JSON.stringify(process.env.LAN_IP ?? lanIp) },
 })

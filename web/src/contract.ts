@@ -1,6 +1,7 @@
 // Mirrors CONTRACT.md. Change both or neither.
-// Same host as the page, so a phone on the LAN reaches the server the laptop runs.
-export const API = import.meta.env.VITE_API ?? `http://${window.location.hostname}:8000`;
+// Same origin as the page: the dev server forwards /api and /files to FastAPI (see vite.config.ts),
+// so the laptop and a phone on the LAN use the exact same address.
+export const API = import.meta.env.VITE_API ?? "";
 
 export type Stage =
   | "queued"
