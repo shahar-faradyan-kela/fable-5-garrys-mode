@@ -21,8 +21,6 @@ SCENE_SCHEMA = {
         "landmarks": {
             "type": "array",
             "items": {"type": "string"},
-            "minItems": 3,
-            "maxItems": 5,
         },
     },
     "required": ["title", "tagline", "narration", "landmarks"],
