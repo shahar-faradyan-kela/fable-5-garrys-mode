@@ -1,7 +1,7 @@
 # DropIn — the one-hour plan
 
 **Pitch:** film a real place, walk around inside it a minute later. Track: **Breakthrough**.
-**Clock:** build 19:00–20:00 · demo two minutes · repo `danielpodolsky-collab/dropin`.
+**Clock:** build 19:00–20:00 · demo two minutes · repo `shahar-faradyan-kela/fable-5-garrys-mode`.
 
 ## How each judging criterion is won (25 % each)
 
