@@ -111,7 +111,7 @@ export default function Play() {
       )}
 
       {locked && <div className="hud-crosshair" />}
-      {locked && <footer className="hud-keys">WASD move · Mouse look · Shift run · Space jump · Esc release</footer>}
+      {locked && <footer className="hud-keys">Click shoot · WASD move · Mouse look · Shift run · Space jump · Esc release</footer>}
       <pre ref={pose} className="hud-debug" hidden={!debug} />
 
       {!locked && (

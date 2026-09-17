@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
-import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import { SparkRenderer, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SplatMesh } from "@sparkjsdev/spark";
 import { saveTuning, type WorldConfig } from "./worlds";
 
 export interface WorldEvents {
@@ -65,14 +65,76 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
 
   // Walls and furniture: a cell of the measured map is solid, and the player has a body radius.
   const BODY = cfg.body;
+  const rows = cfg.solid ? cfg.solid.rows.map((r) => r.split("")) : []; // mutable: shots open it up
   const solidAt = (x: number, z: number) => {
     const m = cfg.solid;
     if (!m) return false;
-    const row = m.rows[Math.floor((z + m.halfZ) / m.cell)];
+    const row = rows[Math.floor((z + m.halfZ) / m.cell)];
     return row !== undefined && row[Math.floor((x + m.halfX) / m.cell)] === "#";
   };
   const blocked = (x: number, z: number) =>
     solidAt(x - BODY, z) || solidAt(x + BODY, z) || solidAt(x, z - BODY) || solidAt(x, z + BODY);
+
+  // The gun. A shot that meets the floor or anything solid erases the splats around the impact
+  // and opens the solid map there, so what you destroy you can walk through.
+  scene.add(camera);
+  const gun = new THREE.Group();
+  const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.07, 0.5), new THREE.MeshBasicMaterial({ color: 0x1b1d24 }));
+  const sight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.5), new THREE.MeshBasicMaterial({ color: 0xc084fc }));
+  sight.position.y = 0.045;
+  gun.add(barrel, sight);
+  gun.position.set(0.22, -0.2, -0.45);
+  camera.add(gun);
+
+  const unit = Math.max(1, cfg.eyeY / 1.6); // worlds are not all metric
+  const BLAST = 0.5 * unit;
+  const MAX_HOLES = 24;
+  const edit = new SplatEdit({ rgbaBlendMode: SplatEditRgbaBlendMode.MULTIPLY, softEdge: 0.1 * unit });
+  scene.add(edit);
+  const holes: SplatEditSdf[] = [];
+  const shots: { mesh: THREE.Mesh; dir: THREE.Vector3; flown: number }[] = [];
+  const blasts: THREE.Mesh[] = [];
+  const shotGeo = new THREE.SphereGeometry(0.05 * unit, 12, 12);
+  const shotMat = new THREE.MeshBasicMaterial({ color: 0xffc46b });
+  const blastGeo = new THREE.SphereGeometry(BLAST, 20, 20);
+  let kick = 0;
+
+  const fire = () => {
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    const mesh = new THREE.Mesh(shotGeo, shotMat);
+    mesh.position.copy(camera.position).addScaledVector(dir, 0.6 * unit);
+    scene.add(mesh);
+    shots.push({ mesh, dir, flown: 0 });
+    kick = 1;
+  };
+  const onMouseDown = (e: MouseEvent) => {
+    if (e.button === 0 && controls.isLocked) fire();
+  };
+  document.addEventListener("mousedown", onMouseDown);
+
+  const blastAt = (at: THREE.Vector3) => {
+    const hole =
+      holes.length < MAX_HOLES
+        ? new SplatEditSdf({ type: SplatEditSdfType.SPHERE, radius: BLAST, opacity: 0 })
+        : holes.shift()!; // out of holes: the oldest one heals
+    hole.position.copy(at);
+    if (!hole.parent) edit.add(hole);
+    holes.push(hole);
+    const m = cfg.solid;
+    if (m) {
+      for (let dz = -BLAST; dz <= BLAST; dz += m.cell / 2) {
+        for (let dx = -BLAST; dx <= BLAST; dx += m.cell / 2) {
+          const row = rows[Math.floor((at.z + dz + m.halfZ) / m.cell)];
+          const c = Math.floor((at.x + dx + m.halfX) / m.cell);
+          if (row && row[c] === "#" && Math.hypot(dx, dz) <= BLAST) row[c] = " ";
+        }
+      }
+    }
+    const flash = new THREE.Mesh(blastGeo, new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.9 }));
+    flash.position.copy(at);
+    scene.add(flash);
+    blasts.push(flash);
+  };
 
   const onKeyDown = (e: KeyboardEvent) => {
     keys.add(e.code);
@@ -149,6 +211,37 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
       }
     }
 
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const s = shots[i];
+      let hit = false;
+      for (let sub = 0; sub < 4 && !hit; sub++) {
+        const step = (30 * unit * dt) / 4;
+        s.mesh.position.addScaledVector(s.dir, step);
+        s.flown += step;
+        const q = s.mesh.position;
+        hit = q.y <= 0.05 || (q.y < cfg.eyeY * 1.3 && solidAt(q.x, q.z)) || s.flown > 14 * unit;
+      }
+      if (hit) {
+        blastAt(s.mesh.position.clone());
+        scene.remove(s.mesh);
+        shots.splice(i, 1);
+      }
+    }
+    for (let i = blasts.length - 1; i >= 0; i--) {
+      const b = blasts[i];
+      const mat = b.material as THREE.MeshBasicMaterial;
+      b.scale.multiplyScalar(1 + 5 * dt);
+      mat.opacity -= 3.5 * dt;
+      if (mat.opacity <= 0) {
+        scene.remove(b);
+        mat.dispose();
+        blasts.splice(i, 1);
+      }
+    }
+    kick = Math.max(0, kick - 6 * dt);
+    gun.position.z = -0.45 + 0.08 * kick;
+    gun.rotation.x = 0.15 * kick;
+
     events.onPose({ x: p.x, y: p.y, z: p.z, yaw: camera.rotation.y, fly, eyeY });
     renderer.render(scene, camera);
   });
@@ -160,6 +253,7 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
     },
     dispose: () => {
       renderer.setAnimationLoop(null);
+      document.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
