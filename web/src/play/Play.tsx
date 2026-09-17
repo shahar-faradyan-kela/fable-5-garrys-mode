@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getJob, type Scene } from "../contract";
 import { createWorld, type World } from "./world";
-import { configFor, DEFAULT_WORLD_URL, FALLBACK_SCENE, type WorldConfig } from "./worlds";
+import { configFor, DEFAULT_WORLD_URL, FALLBACK_SCENE, VENUE_SCENE, VENUE_URL, type WorldConfig } from "./worlds";
 import "./play.css";
 
 interface Source {
@@ -18,18 +18,21 @@ async function resolveSource(): Promise<Source> {
 }
 
 async function findWorld(): Promise<Omit<Source, "cfg">> {
-  const jobId = new URLSearchParams(window.location.search).get("job");
+  const params = new URLSearchParams(window.location.search);
+  const jobId = params.get("job");
+  const venue = params.get("world") === "venue";
+  const fallback = venue ? VENUE_SCENE : FALLBACK_SCENE;
   if (jobId) {
     try {
       const job = await getJob(jobId);
       if (job.splatUrl) {
-        return { url: job.splatUrl, scene: job.scene ?? FALLBACK_SCENE, fromClaude: job.scene !== null };
+        return { url: venue ? VENUE_URL : job.splatUrl, scene: job.scene ?? fallback, fromClaude: job.scene !== null };
       }
     } catch {
       // fall through to the built-in world
     }
   }
-  return { url: DEFAULT_WORLD_URL, scene: FALLBACK_SCENE, fromClaude: false };
+  return { url: venue ? VENUE_URL : DEFAULT_WORLD_URL, scene: fallback, fromClaude: false };
 }
 
 export default function Play() {

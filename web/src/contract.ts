@@ -43,4 +43,5 @@ export async function getLatestJob(): Promise<Job | null> {
   return res.json();
 }
 
-export const playUrl = (jobId: string) => `/?job=${jobId}#play`;
+// Tonight every job lands in the venue room; drop `&world=venue` to land in the job's own splat.
+export const playUrl = (jobId: string) => `/?job=${jobId}&world=venue#play`;

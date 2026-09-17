@@ -32,10 +32,14 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
   renderer.setSize(host.clientWidth, host.clientHeight);
   host.appendChild(renderer.domElement);
 
+  let mesh: SplatMesh | null = null;
+  if (cfg.photos) {
+    buildPhotoRoom(scene, cfg.photos, events);
+  } else {
   const spark = new SparkRenderer({ renderer });
   scene.add(spark);
 
-  const mesh = new SplatMesh({
+  mesh = new SplatMesh({
     url,
     onProgress: (e: ProgressEvent) => {
       if (e.lengthComputable) events.onProgress(e.loaded / e.total);
@@ -45,6 +49,7 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
   mesh.position.set(...cfg.offset);
   scene.add(mesh);
   mesh.initialized.then(() => events.onReady()).catch((err: unknown) => events.onError(String(err)));
+  }
 
   const controls = new PointerLockControls(camera, renderer.domElement);
   controls.addEventListener("lock", () => events.onLock(true));
@@ -137,6 +142,11 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
       // The walls: the room's footprint.
       p.x = THREE.MathUtils.clamp(p.x, cfg.bounds.minX, cfg.bounds.maxX);
       p.z = THREE.MathUtils.clamp(p.z, cfg.bounds.minZ, cfg.bounds.maxZ);
+      const out = Math.hypot(p.x, p.z);
+      if (cfg.radius && out > cfg.radius) {
+        p.x *= cfg.radius / out;
+        p.z *= cfg.radius / out;
+      }
     }
 
     events.onPose({ x: p.x, y: p.y, z: p.z, yaw: camera.rotation.y, fly, eyeY });
@@ -156,9 +166,41 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
       window.removeEventListener("resize", onResize);
       controls.unlock();
       controls.dispose();
-      mesh.dispose();
+      mesh?.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     },
   };
+}
+
+// A room made of photos: each photo is a wall panel, the panels form a ring, the player stands inside.
+function buildPhotoRoom(scene: THREE.Scene, photos: string[], events: WorldEvents) {
+  const n = photos.length;
+  const width = 7;
+  const height = (width * 9) / 16;
+  const ring = width / (2 * Math.tan(Math.PI / n)); // centre-to-wall distance that closes the ring
+
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(ring + 1, 64), new THREE.MeshBasicMaterial({ color: 0xd9ceb9 }));
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
+  const ceiling = new THREE.Mesh(new THREE.CircleGeometry(ring + 1, 64), new THREE.MeshBasicMaterial({ color: 0x2b2723 }));
+  ceiling.rotation.x = Math.PI / 2;
+  ceiling.position.y = height;
+  scene.add(ceiling);
+
+  const manager = new THREE.LoadingManager(
+    () => events.onReady(),
+    (_url, loaded, total) => events.onProgress(loaded / total),
+    (failed) => events.onError(`could not load ${failed}`),
+  );
+  const loader = new THREE.TextureLoader(manager);
+  photos.forEach((src, i) => {
+    const angle = (i * 2 * Math.PI) / n;
+    const texture = loader.load(src);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial({ map: texture }));
+    wall.position.set(ring * Math.sin(angle), height / 2, -ring * Math.cos(angle));
+    wall.rotation.y = -angle; // face the centre
+    scene.add(wall);
+  });
 }

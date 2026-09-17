@@ -21,6 +21,8 @@ export interface WorldConfig {
   speed: number; // walk speed, world units per second
   body: number; // the player's radius against solid cells
   solid: SolidMap | null;
+  photos?: string[]; // a room whose walls are photos of the place, instead of a splat
+  radius?: number; // round rooms: how far from the centre the player may walk
 }
 
 export const DEFAULT_WORLD_URL = "/worlds/room.splat";
@@ -49,12 +51,34 @@ const UNKNOWN: WorldConfig = {
   solid: null,
 };
 
+// The venue, from seven phone photos: a ring of photo walls you stand inside.
+export const VENUE_URL = "venue";
+const VENUE: WorldConfig = {
+  ...UNKNOWN,
+  eyeY: 1.6,
+  dropFrom: 2.2,
+  speed: 2.4,
+  body: 0.3,
+  bounds: { minX: -20, maxX: 20, minZ: -20, maxZ: 20 },
+  photos: [1, 2, 3, 4, 5, 6, 7].map((n) => `/venue/${n}.jpg`),
+  radius: 6.2,
+};
+
+export const VENUE_SCENE: Scene = {
+  title: "Island, Tel Aviv",
+  tagline: "Build Day, rebuilt from seven phone photos.",
+  narration:
+    "You have landed in the middle of the Build Day venue. Turn around: the welcome table, the glass meeting room, the coffee bar and the rows of builders are all around you.",
+  landmarks: ["Welcome table", "Glass meeting room", "Coffee bar", "Projector screen", "Claude Community banner"],
+};
+
 export const fileOf = (url: string) => url.split("/").pop() ?? url;
 const storageKey = (url: string) => `dropin:world:${fileOf(url)}`;
 
 // A world measured by tools/measure_world.py has `<file>.map.json` next to it: upright transform,
 // floor, solid map and landing spot. The built-in room carries its own; anything else gets a bare box.
 export async function configFor(url: string): Promise<WorldConfig> {
+  if (url === VENUE_URL) return VENUE;
   let base = fileOf(url) === "room.splat" ? ROOM : UNKNOWN;
   try {
     const res = await fetch(`${url}.map.json`);
