@@ -1,0 +1,627 @@
+<title>Flatgrass Sandbox</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+  /* Single-theme on purpose: a game viewport with an HL2-style amber HUD. */
+  :root{
+    --sky:#8fc4ee; --ink:#0d141c; --panel:rgba(13,20,28,.82); --line:rgba(255,255,255,.14);
+    --amber:#ffd45e; --blue:#1291ff; --text:#eef4fa; --dim:#9db0c2;
+    --display:"Chakra Petch","Trebuchet MS",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  }
+  [hidden]{display:none!important}
+  html,body{height:100%;margin:0}
+  body{background:var(--ink);color:var(--text);font-family:var(--display);overflow:hidden;position:relative;user-select:none;-webkit-user-select:none}
+  canvas#view{position:absolute;inset:0;width:100%;height:100%;display:block;outline:none}
+  #cross{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.6);pointer-events:none}
+  .hud{position:absolute;pointer-events:none;font-family:var(--display);color:var(--amber);text-shadow:0 1px 2px rgba(0,0,0,.7)}
+  #hudL{left:20px;bottom:calc(18px + env(safe-area-inset-bottom,0px));display:flex;gap:12px;align-items:flex-end}
+  #hudR{right:20px;bottom:calc(18px + env(safe-area-inset-bottom,0px));text-align:right}
+  .tile{background:rgba(0,0,0,.42);border-radius:6px;padding:8px 14px}
+  .tile small{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.8}
+  .tile b{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+  #slots{display:flex;gap:6px}
+  .slot{background:rgba(0,0,0,.42);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--dim)}
+  .slot.on{background:var(--blue);color:#fff}
+  .slot i{font-style:normal;font-family:var(--mono);opacity:.7;margin-right:6px}
+  #keys{position:absolute;right:20px;top:20px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 14px;font-family:var(--mono);font-size:12px;line-height:1.7;color:var(--dim);pointer-events:none}
+  #keys kbd{color:var(--text);font-family:inherit;font-weight:600}
+  #toast{position:absolute;left:50%;top:62%;transform:translateX(-50%);font-family:var(--mono);font-size:13px;background:var(--panel);padding:6px 12px;border-radius:4px;opacity:0;transition:opacity .2s;pointer-events:none}
+  #toast.show{opacity:1}
+
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding-inline:16px;background:rgba(9,14,20,.55);backdrop-filter:blur(3px)}
+  #start .box{max-width:520px;width:100%}
+  #start h1{font-size:clamp(34px,7vw,58px);line-height:1;margin:0 0 6px;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+  #start h1 span{color:var(--blue)}
+  #start p{color:var(--dim);font-family:var(--mono);font-size:13px;line-height:1.6;margin:0 0 20px}
+  button{font:inherit;cursor:pointer}
+  button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  #play{background:var(--blue);color:#fff;border:0;border-radius:6px;padding:12px 26px;font-size:18px;font-weight:700}
+  #play:hover{filter:brightness(1.12)}
+  #touchnote{display:none;margin-top:14px;color:var(--amber)}
+  @media (hover:none){#touchnote{display:block}#keys{display:none}}
+
+  #menu .sheet{background:var(--panel);border:1px solid var(--line);border-radius:8px;width:min(720px,100%);max-height:86%;overflow:auto;padding:18px}
+  #menu h2{margin:0 0 4px;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:500}
+  #menu .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-bottom:16px}
+  .pick{background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:10px;text-align:left;display:flex;flex-direction:column;gap:6px}
+  .pick:hover{border-color:var(--blue);background:rgba(18,145,255,.16)}
+  .pick.on{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue)}
+  .pick .sw{height:44px;border-radius:4px}
+  .pick em{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  @media (max-width:520px){#keys{display:none}#slots{display:none}}
+</style>
+
+<canvas id="view" tabindex="0"></canvas>
+<div id="cross"></div>
+
+<div class="hud" id="hudL">
+  <div class="tile"><small>Health</small><b>100</b></div>
+  <div id="slots"></div>
+</div>
+<div class="hud" id="hudR">
+  <div class="tile"><small id="modeLbl">Tool</small><b id="modeVal" style="font-size:18px">—</b></div>
+  <div class="tile" style="margin-top:6px"><small>Props</small><b id="count">0</b></div>
+</div>
+
+<div id="keys">
+  <kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>Shift</kbd> run<br>
+  <kbd>1 2 3</kbd> / wheel — weapon<br>
+  <kbd>Q</kbd> spawn menu · <kbd>Z</kbd> undo · <kbd>V</kbd> noclip<br>
+  <kbd>LMB</kbd> fire · <kbd>RMB</kbd> alt (freeze / pull)<br>
+  <kbd>Esc</kbd> pause
+</div>
+<div id="toast"></div>
+
+<div class="overlay" id="menu" hidden>
+  <div class="sheet">
+    <h2>Props — click to load into the tool gun</h2>
+    <div class="grid" id="propGrid"></div>
+    <h2>Tools</h2>
+    <div class="grid" id="toolGrid"></div>
+  </div>
+</div>
+
+<div class="overlay" id="start">
+  <div class="box">
+    <h1>flat<span>grass</span> sandbox</h1>
+    <p>No goals. A physics gun, a gravity gun, a tool gun, and a field of crates, barrels and melons. Grab things, freeze them mid-air, weld them together, tie balloons to them, blow them up.</p>
+    <button id="play">Click to play</button>
+    <p id="touchnote">Needs a keyboard and mouse.</p>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const canvas = $('view');
+const V3 = THREE.Vector3;
+
+/* ---------- renderer / scene ---------- */
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8fc4ee);
+scene.fog = new THREE.Fog(0x8fc4ee, 60, 220);
+const camera = new THREE.PerspectiveCamera(80, 1, 0.05, 400);
+camera.rotation.order = 'YXZ';
+scene.add(camera);
+
+scene.add(new THREE.HemisphereLight(0xdfefff, 0x5a7a3a, 0.75));
+const sun = new THREE.DirectionalLight(0xfff2d8, 0.95);
+sun.position.set(30, 50, 20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, {left:-45, right:45, top:45, bottom:-45, near:1, far:140});
+scene.add(sun);
+
+function resize(){
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+/* ---------- textures ---------- */
+function tex(size, draw, repeat){
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  draw(c.getContext('2d'), size);
+  const t = new THREE.CanvasTexture(c);
+  if (repeat){ t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); }
+  t.anisotropy = 8;
+  return t;
+}
+const grassTex = tex(256, (g, s) => {
+  g.fillStyle = '#5f9a3c'; g.fillRect(0,0,s,s);
+  for (let i=0;i<2600;i++){ g.fillStyle = `rgba(${40+Math.random()*60|0},${110+Math.random()*70|0},${30+Math.random()*40|0},.5)`; g.fillRect(Math.random()*s, Math.random()*s, 2, 3); }
+  g.strokeStyle = 'rgba(255,255,255,.10)'; g.lineWidth = 2; g.strokeRect(0,0,s,s);
+}, 60);
+const crateTex = tex(128, (g, s) => {
+  g.fillStyle = '#a9773f'; g.fillRect(0,0,s,s);
+  g.strokeStyle = '#6d4820'; g.lineWidth = 3;
+  for (let y=0;y<s;y+=26){ g.beginPath(); g.moveTo(0,y); g.lineTo(s,y); g.stroke(); }
+  g.lineWidth = 14; g.strokeStyle = '#7c5426'; g.strokeRect(7,7,s-14,s-14);
+  g.beginPath(); g.moveTo(10,10); g.lineTo(s-10,s-10); g.stroke();
+});
+const concreteTex = tex(128, (g, s) => {
+  g.fillStyle = '#b9bcc0'; g.fillRect(0,0,s,s);
+  for (let i=0;i<900;i++){ g.fillStyle = `rgba(0,0,0,${Math.random()*.07})`; g.fillRect(Math.random()*s, Math.random()*s, 3, 3); }
+  g.strokeStyle = 'rgba(0,0,0,.18)'; g.strokeRect(0,0,s,s);
+});
+
+/* ---------- physics ---------- */
+const world = new CANNON.World();
+world.gravity.set(0, -14, 0);
+world.broadphase = new CANNON.NaiveBroadphase();
+world.allowSleep = true;
+world.solver.iterations = 12;
+world.defaultContactMaterial.friction = 0.5;
+world.defaultContactMaterial.restitution = 0.08;
+const matDefault = world.defaultMaterial = new CANNON.Material('default');
+const matBouncy = new CANNON.Material('bouncy');
+const matPlayer = new CANNON.Material('player');
+world.addContactMaterial(new CANNON.ContactMaterial(matBouncy, matDefault, {friction:.4, restitution:.75}));
+world.addContactMaterial(new CANNON.ContactMaterial(matPlayer, matDefault, {friction:0, restitution:0}));
+world.addContactMaterial(new CANNON.ContactMaterial(matPlayer, matBouncy, {friction:0, restitution:0}));
+const G_WORLD = 1, G_PLAYER = 2;
+
+const pickables = [];   // meshes the crosshair ray can hit
+const props = [];       // {mesh, body, def}
+const ropes = [];       // {line, a, b} a/b: bodies
+const balloons = [];    // bodies with lift
+const undo = [];
+const pendingExplode = new Set();
+
+/* ground + static map */
+// cannon 0.6.2 defaults collisionFilterMask to 1, so world bodies opt in to the player group explicitly
+const groundBody = new CANNON.Body({mass:0, material:matDefault, collisionFilterMask:G_WORLD|G_PLAYER});
+groundBody.addShape(new CANNON.Box(new CANNON.Vec3(300, 5, 300)));
+groundBody.position.set(0, -5, 0);
+world.addBody(groundBody);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({map:grassTex}));
+ground.rotation.x = -Math.PI/2; ground.receiveShadow = true;
+ground.userData.body = groundBody; ground.userData.isWorld = true;
+scene.add(ground); pickables.push(ground);
+
+function staticBox(x, y, z, sx, sy, sz, rotX = 0, rotY = 0, color = 0xffffff){
+  const t = concreteTex.clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(Math.max(1, Math.max(sx, sz) / 2), Math.max(1, Math.max(sy, 1) / 2));
+  const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), new THREE.MeshLambertMaterial({map:t, color}));
+  m.position.set(x, y, z); m.rotation.set(rotX, rotY, 0, 'YXZ');
+  m.castShadow = m.receiveShadow = true;
+  const b = new CANNON.Body({mass:0, material:matDefault, collisionFilterMask:G_WORLD|G_PLAYER});
+  b.addShape(new CANNON.Box(new CANNON.Vec3(sx/2, sy/2, sz/2)));
+  b.position.copy(m.position); b.quaternion.copy(m.quaternion);
+  world.addBody(b);
+  m.userData.body = b; m.userData.isWorld = true;
+  scene.add(m); pickables.push(m);
+}
+// the flatgrass building: platform, ramp, a few walls
+staticBox(-16, 1.5, -14, 12, 3, 12);
+staticBox(-16, 1.42, -3.4, 5, 0.3, 10.4, 0.293, 0);
+staticBox(-21.7, 4.5, -14, 0.6, 3, 12);
+staticBox(-16, 4.5, -19.7, 12, 3, 0.6);
+staticBox(18, 0.5, -20, 10, 1, 10, 0, 0.4, 0xd8c9a8);
+staticBox(18, 3, 8, 0.6, 6, 14, 0, -0.3, 0xd8c9a8);
+
+/* ---------- prop catalogue ---------- */
+const PROPS = [
+  {id:'crate',   name:'Wooden crate',  kind:'box', size:[1,1,1],       mass:20, color:0xffffff, map:crateTex, sw:'#a9773f'},
+  {id:'bigcrate',name:'Big crate',     kind:'box', size:[2,2,2],       mass:90, color:0xe8d2b0, map:crateTex, sw:'#8d6232'},
+  {id:'plank',   name:'Plank',         kind:'box', size:[4,0.2,0.8],   mass:14, color:0xc79a5b, sw:'#c79a5b'},
+  {id:'beam',    name:'Steel beam',    kind:'box', size:[0.4,0.4,5],   mass:60, color:0x77828f, sw:'#77828f'},
+  {id:'barrel',  name:'Oil drum',      kind:'cyl', size:[0.42,1.25],   mass:25, color:0x2f6fb8, sw:'#2f6fb8'},
+  {id:'boom',    name:'Explosive barrel', kind:'cyl', size:[0.42,1.25],mass:25, color:0xc8322b, sw:'#c8322b', explosive:true},
+  {id:'ball',    name:'Bouncy ball',   kind:'sph', size:[0.5],         mass:4,  color:0xff8a1f, sw:'#ff8a1f', bouncy:true},
+  {id:'melon',   name:'Watermelon',    kind:'sph', size:[0.34],        mass:6,  color:0x2e8b3d, sw:'#2e8b3d'},
+];
+const TOOLS = [
+  {id:'remove',  name:'Remover', hint:'click a prop to delete it'},
+  {id:'weld',    name:'Weld',    hint:'click two things to lock them together'},
+  {id:'balloon', name:'Balloon', hint:'tie a balloon where you click'},
+  {id:'paint',   name:'Paint',   hint:'recolour a prop'},
+];
+const PAINTS = [0xe94f37, 0x1291ff, 0xffd45e, 0x3ec46d, 0xb265e8, 0xf4f4f4, 0x23272e, 0xff7eb6];
+
+function spawnProp(def, pos, silent){
+  if (props.length >= 160){ toast('Prop limit reached — remove some'); return null; }
+  let geo, shape, quat;
+  if (def.kind === 'box'){
+    geo = new THREE.BoxGeometry(...def.size);
+    shape = new CANNON.Box(new CANNON.Vec3(def.size[0]/2, def.size[1]/2, def.size[2]/2));
+  } else if (def.kind === 'cyl'){
+    geo = new THREE.CylinderGeometry(def.size[0], def.size[0], def.size[1], 14);
+    shape = new CANNON.Cylinder(def.size[0], def.size[0], def.size[1], 12);
+    quat = new CANNON.Quaternion(); quat.setFromAxisAngle(new CANNON.Vec3(1,0,0), -Math.PI/2); // cannon cylinders lie along Z
+  } else {
+    geo = new THREE.SphereGeometry(def.size[0], 20, 14);
+    shape = new CANNON.Sphere(def.size[0]);
+  }
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({color:def.color, map:def.map || null}));
+  mesh.castShadow = mesh.receiveShadow = true;
+  const body = new CANNON.Body({mass:def.mass, material:def.bouncy ? matBouncy : matDefault, collisionFilterMask:G_WORLD|G_PLAYER});
+  body.addShape(shape, new CANNON.Vec3(), quat);
+  body.position.set(pos.x, pos.y, pos.z);
+  body.linearDamping = 0.05; body.angularDamping = 0.15;
+  body.allowSleep = true; body.sleepSpeedLimit = 0.15; body.sleepTimeLimit = 0.8;
+  world.addBody(body);
+  const p = {mesh, body, def, mass:def.mass, frozen:false};
+  mesh.userData.body = body; mesh.userData.prop = p; body.prop = p;
+  if (def.explosive) body.addEventListener('collide', e => {
+    if (Math.abs(e.contact.getImpactVelocityAlongNormal()) > 13) pendingExplode.add(p);
+  });
+  scene.add(mesh); pickables.push(mesh); props.push(p);
+  if (!silent) undo.push(() => removeProp(p));
+  return p;
+}
+function removeProp(p){
+  const i = props.indexOf(p); if (i < 0) return;
+  props.splice(i, 1);
+  pickables.splice(pickables.indexOf(p.mesh), 1);
+  scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
+  world.constraints.filter(c => c.bodyA === p.body || c.bodyB === p.body).forEach(c => world.removeConstraint(c));
+  for (let r = ropes.length - 1; r >= 0; r--) if (ropes[r].a === p.body || ropes[r].b === p.body){ scene.remove(ropes[r].line); ropes.splice(r, 1); }
+  const bi = balloons.indexOf(p.body); if (bi >= 0) balloons.splice(bi, 1);
+  world.removeBody(p.body);
+  if (held && held.p === p) held = null;
+  if (weldFirst && weldFirst.prop === p) weldFirst = null;
+}
+function setFrozen(p, on){
+  p.frozen = on;
+  const b = p.body;
+  b.type = on ? CANNON.Body.STATIC : CANNON.Body.DYNAMIC;
+  b.mass = on ? 0 : p.mass; b.updateMassProperties();
+  b.velocity.setZero(); b.angularVelocity.setZero();
+  b.aabbNeedsUpdate = true; b.wakeUp();
+  glow(p);
+}
+function glow(p){
+  p.mesh.material.emissive.setHex(weldFirst && weldFirst.prop === p ? 0x116622 : p.frozen ? 0x0e2f55 : 0);
+}
+function explode(p){
+  if (props.indexOf(p) < 0) return;
+  const c = p.body.position.clone();
+  removeProp(p);
+  for (const o of props.slice()){
+    const d = o.body.position.vsub(c), len = d.length();
+    if (len > 9) continue;
+    if (o.def.explosive && len < 4.5){ setTimeout(() => explode(o), 120 + Math.random()*120); }
+    if (o.frozen) continue;
+    d.normalize(); d.y += 0.45;
+    o.body.wakeUp();
+    o.body.applyImpulse(d.scale((1 - len/9) * 28 * Math.min(o.mass, 40)), o.body.position);
+  }
+  const pd = player.position.vsub(c), pl = pd.length();
+  if (pl < 9){ pd.normalize(); pd.y += .5; player.velocity.vadd(pd.scale((1 - pl/9) * 22), player.velocity); }
+  const fx = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({color:0xffb347, transparent:true, opacity:.9}));
+  fx.position.copy(c); fx.userData.t = 0; scene.add(fx); blasts.push(fx);
+  shake = .5;
+}
+const blasts = []; let shake = 0;
+
+/* ---------- player ---------- */
+const player = new CANNON.Body({mass:70, material:matPlayer, fixedRotation:true,
+  collisionFilterGroup:G_PLAYER, collisionFilterMask:G_WORLD});
+player.addShape(new CANNON.Sphere(0.5));
+player.addShape(new CANNON.Sphere(0.45), new CANNON.Vec3(0, 0.75, 0));
+player.position.set(0, 1, 14);
+player.allowSleep = false;
+world.addBody(player);
+let yaw = 0, pitch = -0.08, noclip = false;
+const keys = {};
+const rayRes = new CANNON.RaycastResult();
+function onGround(){
+  rayRes.reset();
+  const from = player.position, to = new CANNON.Vec3(from.x, from.y - 0.62, from.z);
+  world.raycastClosest(from, to, {collisionFilterMask:G_WORLD, collisionFilterGroup:G_WORLD, skipBackfaces:true}, rayRes);
+  return rayRes.hasHit;
+}
+
+/* ---------- weapons ---------- */
+const WEAPONS = [
+  {id:'phys', name:'Physics gun', color:0x1291ff},
+  {id:'grav', name:'Gravity gun', color:0xff8a1f},
+  {id:'tool', name:'Tool gun',    color:0xcfd6de},
+];
+let weapon = 0, toolMode = {type:'spawn', def:PROPS[0]};
+let held = null;        // {p, dist, offset:V3}
+let weldFirst = null;   // {body, prop}
+let lmb = false;
+
+// view model
+const vm = new THREE.Group();
+const vmMat = new THREE.MeshLambertMaterial({color:0x2a3038});
+const vmGlow = new THREE.MeshBasicMaterial({color:0x1291ff});
+const vmBody = new THREE.Mesh(new THREE.BoxGeometry(.13,.16,.6), vmMat);
+const vmTip = new THREE.Mesh(new THREE.CylinderGeometry(.045,.06,.3,10), vmGlow); vmTip.rotation.x = Math.PI/2; vmTip.position.z = -.42;
+const vmGrip = new THREE.Mesh(new THREE.BoxGeometry(.09,.22,.1), vmMat); vmGrip.position.set(0,-.17,.18);
+vm.add(vmBody, vmTip, vmGrip); vm.position.set(.34,-.3,-.62); vm.rotation.y = .08;
+camera.add(vm);
+
+const BEAM_N = 24;
+const beam = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({length:BEAM_N}, () => new V3())),
+  new THREE.LineBasicMaterial({color:0x6fc3ff, transparent:true, opacity:.95}));
+beam.frustumCulled = false; beam.visible = false; scene.add(beam);
+
+const raycaster = new THREE.Raycaster(); raycaster.far = 120;
+function aim(){
+  raycaster.setFromCamera({x:0, y:0}, camera);
+  const hits = raycaster.intersectObjects(pickables, false);
+  return hits[0] || null;
+}
+function camDir(){ return camera.getWorldDirection(new V3()); }
+
+function setWeapon(i){
+  if (held) dropHeld();
+  weapon = (i + WEAPONS.length) % WEAPONS.length;
+  vmGlow.color.setHex(WEAPONS[weapon].color);
+  drawHud();
+}
+function dropHeld(throwVel){
+  if (!held) return;
+  const b = held.p.body; b.angularDamping = 0.15;
+  if (throwVel) b.velocity.set(throwVel.x, throwVel.y, throwVel.z);
+  held = null; beam.visible = false;
+}
+function grab(hit, dist){
+  const p = hit.object.userData.prop; if (!p) return false;
+  if (p.frozen) setFrozen(p, false);
+  p.body.wakeUp();
+  held = {p, dist: dist || hit.distance, offset: dist ? new V3() : new V3().copy(p.body.position).sub(hit.point)};
+  return true;
+}
+
+function primary(){
+  const w = WEAPONS[weapon].id, hit = aim();
+  if (w === 'phys'){ if (hit) grab(hit); return; }
+  if (w === 'grav'){
+    if (held){ dropHeld(camDir().multiplyScalar(38)); return; }
+    const p = hit && hit.distance < 10 && hit.object.userData.prop;
+    if (!p) return;
+    if (p.def.explosive){ explode(p); return; }
+    if (p.frozen) return toast('Frozen — unfreeze it with the physics gun');
+    p.body.wakeUp();
+    const d = camDir().multiplyScalar(18 * Math.min(p.mass, 40));
+    p.body.applyImpulse(new CANNON.Vec3(d.x, d.y + 2 * p.mass * .2, d.z), new CANNON.Vec3(hit.point.x, hit.point.y, hit.point.z));
+    return;
+  }
+  // tool gun
+  if (toolMode.type === 'spawn'){
+    const def = toolMode.def, r = def.kind === 'box' ? Math.max(...def.size)/2 : def.kind === 'cyl' ? def.size[1]/2 : def.size[0];
+    let pos;
+    if (hit && hit.distance < 40){
+      const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+      pos = hit.point.clone().addScaledVector(n, r + .05);
+    } else pos = camera.position.clone().addScaledVector(camDir(), 5);
+    if (pos.y < r) pos.y = r + .02;
+    spawnProp(def, pos);
+    return;
+  }
+  if (!hit) return;
+  const p = hit.object.userData.prop;
+  if (toolMode.id === 'remove'){ if (p) removeProp(p); return; }
+  if (toolMode.id === 'paint'){ if (p){ p.mesh.material.color.setHex(PAINTS[Math.random()*PAINTS.length|0]); } return; }
+  if (toolMode.id === 'weld'){
+    const target = {body:hit.object.userData.body, prop:p || null};
+    if (!weldFirst){
+      if (!p) return toast('Start a weld on a prop');
+      weldFirst = target; glow(p); toast('Now click what to weld it to'); return;
+    }
+    if (target.body === weldFirst.body) return;
+    const c = new CANNON.LockConstraint(weldFirst.body, target.body, {maxForce:1e7});
+    world.addConstraint(c);
+    weldFirst.body.wakeUp(); target.body.wakeUp();
+    const first = weldFirst.prop; weldFirst = null; glow(first);
+    undo.push(() => world.removeConstraint(c));
+    toast('Welded');
+    return;
+  }
+  if (toolMode.id === 'balloon'){
+    const col = PAINTS[Math.random()*5|0];
+    const bp = spawnProp({id:'balloon', name:'Balloon', kind:'sph', size:[.38], mass:.4, color:col, bouncy:true}, hit.point.clone().add(new V3(0, 1.6, 0)), true);
+    if (!bp) return;
+    bp.body.allowSleep = false; bp.body.linearDamping = .45; bp.mesh.scale.y = 1.2;
+    balloons.push(bp.body);
+    let anchor = hit.object.userData.body;
+    if (!p){ anchor = new CANNON.Body({mass:0}); anchor.position.set(hit.point.x, hit.point.y, hit.point.z); anchor.collisionResponse = false; world.addBody(anchor); }
+    else p.body.wakeUp();
+    const c = new CANNON.DistanceConstraint(bp.body, anchor, 2.2, 400);
+    world.addConstraint(c);
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new V3(), new V3()]), new THREE.LineBasicMaterial({color:0xf2f2f2}));
+    line.frustumCulled = false; scene.add(line);
+    ropes.push({line, a:bp.body, b:anchor});
+    undo.push(() => { removeProp(bp); if (!p) world.removeBody(anchor); });
+  }
+}
+function secondary(){
+  const w = WEAPONS[weapon].id;
+  if (w === 'phys'){
+    if (held){ const p = held.p; dropHeld(); setFrozen(p, true); toast('Frozen'); }
+    else { const hit = aim(), p = hit && hit.object.userData.prop; if (p && p.frozen){ setFrozen(p, false); toast('Unfrozen'); } }
+  } else if (w === 'grav'){
+    if (held) return dropHeld();
+    const hit = aim(), p = hit && hit.object.userData.prop;
+    if (p && hit.distance < 16){ if (p.frozen) return toast('Frozen — unfreeze it with the physics gun'); grab(hit, 2.6); }
+  } else if (weldFirst){ const f = weldFirst.prop; weldFirst = null; glow(f); }
+}
+
+/* ---------- input / pointer lock ---------- */
+let playing = false, menuOpen = false, fallbackLook = false;
+function lock(){
+  if (fallbackLook) return;
+  try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => { fallbackLook = true; }); }
+  catch (e){ fallbackLook = true; }
+}
+function play(){ playing = true; menuOpen = false; $('menu').hidden = true; $('start').hidden = true; canvas.focus(); lock(); }
+function pause(){ playing = false; menuOpen = false; $('menu').hidden = true; lmb = false; dropHeld(); $('start').hidden = false; $('play').textContent = 'Resume'; }
+$('play').addEventListener('click', play);
+document.addEventListener('pointerlockerror', () => { fallbackLook = true; });
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement !== canvas && playing && !menuOpen && !fallbackLook) pause();
+});
+function openMenu(on){
+  menuOpen = on; $('menu').hidden = !on; lmb = false;
+  if (on){ dropHeld(); if (document.pointerLockElement) document.exitPointerLock(); }
+  else { canvas.focus(); lock(); }
+}
+addEventListener('mousemove', e => {
+  if (!playing || menuOpen) return;
+  if (document.pointerLockElement !== canvas && !fallbackLook) return;
+  yaw -= e.movementX * 0.0022;
+  pitch = Math.max(-1.55, Math.min(1.55, pitch - e.movementY * 0.0022));
+});
+canvas.addEventListener('mousedown', e => {
+  if (!playing || menuOpen) return;
+  if (document.pointerLockElement !== canvas) lock();
+  if (e.button === 0){ lmb = true; primary(); }
+  if (e.button === 2) secondary();
+});
+addEventListener('mouseup', e => {
+  if (e.button !== 0) return;
+  lmb = false;
+  if (held && WEAPONS[weapon].id === 'phys') dropHeld();
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+addEventListener('wheel', e => {
+  if (!playing || menuOpen) return;
+  if (held && WEAPONS[weapon].id === 'phys') held.dist = Math.max(1.5, Math.min(40, held.dist - Math.sign(e.deltaY) * 0.8));
+  else setWeapon(weapon + Math.sign(e.deltaY));
+}, {passive:true});
+addEventListener('keydown', e => {
+  if (e.repeat) return;
+  keys[e.code] = true;
+  if (e.code === 'Escape'){ if (menuOpen) openMenu(false); else if (playing && fallbackLook) pause(); return; }
+  if (!playing) return;
+  if (e.code === 'KeyQ') openMenu(!menuOpen);
+  if (menuOpen) return;
+  if (e.code === 'Digit1') setWeapon(0);
+  if (e.code === 'Digit2') setWeapon(1);
+  if (e.code === 'Digit3') setWeapon(2);
+  if (e.code === 'KeyZ'){ const u = undo.pop(); if (u){ u(); toast('Undone'); } }
+  if (e.code === 'KeyV'){ noclip = !noclip; player.collisionFilterMask = noclip ? 0 : G_WORLD; toast(noclip ? 'Noclip on' : 'Noclip off'); }
+  if (e.code === 'Space') e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+/* ---------- HUD / menu ---------- */
+let toastT;
+function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1500); }
+function drawHud(){
+  $('slots').innerHTML = WEAPONS.map((w, i) => `<div class="slot${i === weapon ? ' on' : ''}"><i>${i+1}</i>${w.name}</div>`).join('');
+  const w = WEAPONS[weapon].id;
+  $('modeLbl').textContent = w === 'tool' ? 'Tool gun' : WEAPONS[weapon].name;
+  $('modeVal').textContent = w === 'tool' ? (toolMode.type === 'spawn' ? 'Spawn · ' + toolMode.def.name : toolMode.name)
+    : w === 'phys' ? 'Hold LMB · RMB freeze' : 'LMB punt · RMB pull';
+  document.querySelectorAll('.pick').forEach(b => b.classList.toggle('on', b.dataset.id === (toolMode.type === 'spawn' ? toolMode.def.id : toolMode.id)));
+}
+function addPick(grid, id, label, sub, swatch, onPick){
+  const b = document.createElement('button');
+  b.className = 'pick'; b.dataset.id = id; b.id = 'pick-' + id;
+  b.innerHTML = `<div class="sw" style="background:${swatch}"></div><span>${label}</span><em>${sub}</em>`;
+  b.addEventListener('click', () => { onPick(); if (weldFirst){ const f = weldFirst.prop; weldFirst = null; glow(f); } setWeapon(2); openMenu(false); });
+  grid.appendChild(b);
+}
+PROPS.forEach(d => addPick($('propGrid'), d.id, d.name, d.mass + ' kg', d.sw, () => { toolMode = {type:'spawn', def:d}; }));
+TOOLS.forEach(t => addPick($('toolGrid'), t.id, t.name, t.hint, 'repeating-linear-gradient(45deg,#2a3440 0 8px,#34404e 8px 16px)', () => { toolMode = Object.assign({type:'tool'}, t); }));
+
+/* ---------- starting scene ---------- */
+const by = id => PROPS.find(p => p.id === id);
+for (let y = 0; y < 4; y++) for (let x = 0; x < 4 - y; x++) spawnProp(by('crate'), new V3(-2 + x * 1.05 + y * .52, .5 + y * 1.0, 0), true);
+[[4,0],[5,.6],[4.6,-1],[6,-.3]].forEach(([x, z]) => spawnProp(by('barrel'), new V3(x, .63, z), true));
+[[8,-4],[8.9,-4.3],[8.4,-5]].forEach(([x, z]) => spawnProp(by('boom'), new V3(x, .63, z), true));
+spawnProp(by('bigcrate'), new V3(-7, 1, -3), true);
+spawnProp(by('plank'), new V3(-7, 2.2, -3), true);
+spawnProp(by('beam'), new V3(2, .2, 5), true);
+for (let i = 0; i < 5; i++) spawnProp(by('melon'), new V3(-16 + i * .9, 3.4, -12), true);
+for (let i = 0; i < 3; i++) spawnProp(by('ball'), new V3(-3 + i * 1.4, 3 + i, 6), true);
+setWeapon(0);
+
+/* ---------- loop ---------- */
+let last = performance.now();
+const tmpA = new V3(), tmpB = new V3(), tmpC = new V3();
+function frame(now){
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+
+  if (playing && !menuOpen){
+    const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), s = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    const speed = (keys.ShiftLeft ? 11 : 6.5) * (noclip ? 2 : 1);
+    const sin = Math.sin(yaw), cos = Math.cos(yaw);
+    let vx = (-sin * f + cos * s), vz = (-cos * f - sin * s);
+    const l = Math.hypot(vx, vz) || 1; vx = vx / l * speed; vz = vz / l * speed;
+    if (noclip){
+      const up = (keys.Space ? 1 : 0) - (keys.ControlLeft || keys.KeyC ? 1 : 0);
+      player.velocity.set(vx, (up + Math.sin(pitch) * f) * speed, vz);
+    } else {
+      const g = onGround(), k = g ? 1 - Math.pow(0.0001, dt) : 1 - Math.pow(0.2, dt);
+      player.velocity.x += (vx - player.velocity.x) * k;
+      player.velocity.z += (vz - player.velocity.z) * k;
+      if (g && keys.Space && player.velocity.y < 1) player.velocity.y = 6.5;
+    }
+  } else if (!noclip){ player.velocity.x *= .8; player.velocity.z *= .8; }
+  else player.velocity.setZero();
+
+  // held prop follows the crosshair
+  if (held){
+    const b = held.p.body, d = camDir();
+    tmpA.copy(camera.position).addScaledVector(d, held.dist).add(held.offset);
+    b.wakeUp();
+    b.velocity.set((tmpA.x - b.position.x) * 14, (tmpA.y - b.position.y) * 14, (tmpA.z - b.position.z) * 14);
+    b.angularDamping = .9;
+  }
+  for (const b of balloons) b.force.y += b.mass * (14 + 60); // cancel gravity, then lift
+
+  world.step(1/60, dt, 3);
+
+  if (pendingExplode.size){ const list = [...pendingExplode]; pendingExplode.clear(); list.forEach(explode); }
+  for (let i = props.length - 1; i >= 0; i--){
+    const p = props[i];
+    if (p.body.position.y < -30 || p.body.position.y > 140){ removeProp(p); continue; }
+    p.mesh.position.copy(p.body.position); p.mesh.quaternion.copy(p.body.quaternion);
+  }
+  if (player.position.y < -30){ player.position.set(0, 2, 14); player.velocity.setZero(); }
+
+  shake = Math.max(0, shake - dt * 1.6);
+  camera.position.set(player.position.x + (Math.random() - .5) * shake * .3, player.position.y + 1.05 + (Math.random() - .5) * shake * .3, player.position.z);
+  camera.rotation.set(pitch, yaw, 0);
+  camera.updateMatrixWorld();
+  sun.position.set(camera.position.x + 30, 50, camera.position.z + 20); sun.target.position.set(camera.position.x, 0, camera.position.z); sun.target.updateMatrixWorld();
+
+  // beam: bezier from the muzzle, along the aim, bending to the grab point
+  if (held){
+    beam.visible = true;
+    beam.material.color.setHex(WEAPONS[weapon].id === 'grav' ? 0xffb05c : 0x6fc3ff);
+    tmpA.set(.34, -.27, -1).applyMatrix4(camera.matrixWorld);
+    tmpC.copy(held.p.body.position).sub(held.offset);
+    tmpB.copy(camera.position).addScaledVector(camDir(), tmpA.distanceTo(tmpC) * .6);
+    const pos = beam.geometry.attributes.position;
+    for (let i = 0; i < BEAM_N; i++){
+      const t = i / (BEAM_N - 1), a = (1-t)*(1-t), b2 = 2*(1-t)*t, c = t*t, w = Math.sin(t * 20 + now * .02) * .03 * Math.sin(t * Math.PI);
+      pos.setXYZ(i, a*tmpA.x + b2*tmpB.x + c*tmpC.x + w, a*tmpA.y + b2*tmpB.y + c*tmpC.y + w, a*tmpA.z + b2*tmpB.z + c*tmpC.z);
+    }
+    pos.needsUpdate = true;
+  } else beam.visible = false;
+
+  for (const r of ropes){
+    const pos = r.line.geometry.attributes.position;
+    pos.setXYZ(0, r.a.position.x, r.a.position.y - .4, r.a.position.z);
+    pos.setXYZ(1, r.b.position.x, r.b.position.y, r.b.position.z);
+    pos.needsUpdate = true;
+  }
+  for (let i = blasts.length - 1; i >= 0; i--){
+    const fx = blasts[i]; fx.userData.t += dt * 3;
+    fx.scale.setScalar(1 + fx.userData.t * 7); fx.material.opacity = .9 * (1 - fx.userData.t);
+    if (fx.userData.t >= 1){ scene.remove(fx); blasts.splice(i, 1); }
+  }
+  vm.position.y = -.3 + Math.sin(now * .002) * .004 + (lmb ? .01 : 0);
+  $('count').textContent = props.length;
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__fg = {player, props, aim, get held(){ return held; }};
+})();
+</script>
