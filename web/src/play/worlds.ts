@@ -19,6 +19,7 @@ export interface WorldConfig {
   dropFrom: number; // world units above eyeY the player falls from
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   speed: number; // walk speed, world units per second
+  body: number; // the player's radius against solid cells
   solid: SolidMap | null;
 }
 
@@ -33,6 +34,7 @@ const ROOM: WorldConfig = {
   dropFrom: 3,
   bounds: { minX: -2.7, maxX: 1.5, minZ: -4.7, maxZ: 2.0 },
   speed: 2.6,
+  body: 0.3,
   solid: ROOM_MAP,
 };
 
@@ -50,8 +52,16 @@ const UNKNOWN: WorldConfig = {
 export const fileOf = (url: string) => url.split("/").pop() ?? url;
 const storageKey = (url: string) => `dropin:world:${fileOf(url)}`;
 
-export function configFor(url: string): WorldConfig {
-  const base = fileOf(url) === "room.splat" ? ROOM : UNKNOWN;
+// A world measured by tools/measure_world.py has `<file>.map.json` next to it: upright transform,
+// floor, solid map and landing spot. The built-in room carries its own; anything else gets a bare box.
+export async function configFor(url: string): Promise<WorldConfig> {
+  let base = fileOf(url) === "room.splat" ? ROOM : UNKNOWN;
+  try {
+    const res = await fetch(`${url}.map.json`);
+    if (res.ok) base = { ...UNKNOWN, ...(await res.json()) };
+  } catch {
+    // no measurement: keep the base
+  }
   try {
     const saved = localStorage.getItem(storageKey(url));
     if (saved) return { ...base, ...JSON.parse(saved) };

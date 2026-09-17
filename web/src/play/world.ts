@@ -59,7 +59,7 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
   let eyeY = cfg.eyeY;
 
   // Walls and furniture: a cell of the measured map is solid, and the player has a body radius.
-  const BODY = 0.3;
+  const BODY = cfg.body;
   const solidAt = (x: number, z: number) => {
     const m = cfg.solid;
     if (!m) return false;

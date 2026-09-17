@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { getJob, type Scene } from "../contract";
 import { createWorld, type World } from "./world";
-import { configFor, DEFAULT_WORLD_URL, FALLBACK_SCENE } from "./worlds";
+import { configFor, DEFAULT_WORLD_URL, FALLBACK_SCENE, type WorldConfig } from "./worlds";
 import "./play.css";
 
 interface Source {
   url: string;
+  cfg: WorldConfig;
   scene: Scene;
   fromClaude: boolean;
 }
 
 // `?job=<id>` asks the server for the world; anything else (or a dead server) opens the built-in one.
 async function resolveSource(): Promise<Source> {
+  const found = await findWorld();
+  return { ...found, cfg: await configFor(found.url) };
+}
+
+async function findWorld(): Promise<Omit<Source, "cfg">> {
   const jobId = new URLSearchParams(window.location.search).get("job");
   if (jobId) {
     try {
@@ -48,7 +54,7 @@ export default function Play() {
 
   useEffect(() => {
     if (!source || !host.current) return;
-    const w = createWorld(host.current, source.url, configFor(source.url), {
+    const w = createWorld(host.current, source.url, source.cfg, {
       onProgress: setProgress,
       onReady: () => setReady(true),
       onError: setError,
