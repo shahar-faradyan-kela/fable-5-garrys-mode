@@ -65,7 +65,7 @@
 <div id="keys">
   <kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>Shift</kbd> run<br>
   <kbd>1 2 3</kbd> / wheel — weapon<br>
-  <kbd>Q</kbd> spawn menu · <kbd>Z</kbd> undo · <kbd>V</kbd> noclip<br>
+  <kbd>Q</kbd> spawn menu · <kbd>Z</kbd> undo · <kbd>F</kbd> fly · <kbd>V</kbd> noclip<br>
   <kbd>LMB</kbd> fire · <kbd>RMB</kbd> alt (freeze / pull)<br>
   <kbd>Esc</kbd> pause
 </div>
@@ -309,7 +309,7 @@ player.addShape(new CANNON.Sphere(0.45), new CANNON.Vec3(0, 0.75, 0));
 player.position.set(0, 1, 14);
 player.allowSleep = false;
 world.addBody(player);
-let yaw = 0, pitch = -0.08, noclip = false;
+let yaw = 0, pitch = -0.08, noclip = false, fly = false;
 const keys = {};
 const rayRes = new CANNON.RaycastResult();
 function onGround(){
@@ -500,6 +500,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Digit2') setWeapon(1);
   if (e.code === 'Digit3') setWeapon(2);
   if (e.code === 'KeyZ'){ const u = undo.pop(); if (u){ u(); toast('Undone'); } }
+  if (e.code === 'KeyF'){ fly = !fly; toast(fly ? 'Fly on — Space up, Ctrl/C down' : 'Fly off'); }
   if (e.code === 'KeyV'){ noclip = !noclip; player.collisionFilterMask = noclip ? 0 : G_WORLD; toast(noclip ? 'Noclip on' : 'Noclip off'); }
   if (e.code === 'Space') e.preventDefault();
 });
@@ -547,11 +548,11 @@ function frame(now){
 
   if (playing && !menuOpen){
     const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), s = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
-    const speed = (keys.ShiftLeft ? 11 : 6.5) * (noclip ? 2 : 1);
+    const speed = (keys.ShiftLeft ? 11 : 6.5) * (noclip ? 2 : fly ? 1.5 : 1);
     const sin = Math.sin(yaw), cos = Math.cos(yaw);
     let vx = (-sin * f + cos * s), vz = (-cos * f - sin * s);
     const l = Math.hypot(vx, vz) || 1; vx = vx / l * speed; vz = vz / l * speed;
-    if (noclip){
+    if (noclip || fly){ // fly keeps collisions, noclip drops them
       const up = (keys.Space ? 1 : 0) - (keys.ControlLeft || keys.KeyC ? 1 : 0);
       player.velocity.set(vx, (up + Math.sin(pitch) * f) * speed, vz);
     } else {
@@ -560,7 +561,7 @@ function frame(now){
       player.velocity.z += (vz - player.velocity.z) * k;
       if (g && keys.Space && player.velocity.y < 1) player.velocity.y = 6.5;
     }
-  } else if (!noclip){ player.velocity.x *= .8; player.velocity.z *= .8; }
+  } else if (!noclip && !fly){ player.velocity.x *= .8; player.velocity.z *= .8; }
   else player.velocity.setZero();
 
   // held prop follows the crosshair

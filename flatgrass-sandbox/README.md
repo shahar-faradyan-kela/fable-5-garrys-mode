@@ -17,7 +17,8 @@ Desktop only (keyboard + mouse).
 | 1 2 3 or wheel | physics gun / gravity gun / tool gun |
 | LMB / RMB | fire / alt (physgun: freeze, gravgun: pull) |
 | Q | spawn menu (props + tools: remover, weld, balloon, paint) |
-| Z / V / Esc | undo / noclip / pause |
+| F | fly (keeps collisions; Space up, Ctrl/C down, looking up/down while moving also climbs/dives) |
+| Z / V / Esc | undo / noclip (fly through walls) / pause |
 
 ## Gotchas
 
