@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.20.0",
     "@sparkjsdev/spark": "^2.2.0",
     "qrcode-generator": "^2.0.4",
     "react": "^19.2.8",

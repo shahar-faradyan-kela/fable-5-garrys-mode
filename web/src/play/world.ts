@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 import { SparkRenderer, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SplatMesh } from "@sparkjsdev/spark";
+import { createSandbox, type Sandbox } from "./sandbox";
 import { saveTuning, type WorldConfig } from "./worlds";
 
 export interface WorldEvents {
@@ -134,9 +135,32 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
     flash.position.copy(at);
     scene.add(flash);
     blasts.push(flash);
+    sandbox?.carve(at, BLAST);
   };
 
+  // Phase 2, the sandbox. If the physics engine fails to load, the world stays exactly as walkable as before.
+  let sandbox: Sandbox | null = null;
+  let disposed = false;
+  createSandbox(scene, camera, cfg, rows, unit)
+    .then((s) => (disposed ? s.dispose() : (sandbox = s)))
+    .catch((err: unknown) => console.warn("sandbox unavailable:", err));
+  const onGrab = (e: MouseEvent) => {
+    if (e.button === 2 && controls.isLocked) sandbox?.grab();
+  };
+  const onRelease = (e: MouseEvent) => {
+    if (e.button === 2) sandbox?.release();
+  };
+  const onWheel = (e: WheelEvent) => sandbox?.wheel(e.deltaY);
+  const onMenu = (e: Event) => e.preventDefault();
+  document.addEventListener("mousedown", onGrab);
+  document.addEventListener("mouseup", onRelease);
+  document.addEventListener("wheel", onWheel, { passive: true });
+  document.addEventListener("contextmenu", onMenu);
+
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.code === "KeyB" && controls.isLocked) sandbox?.spawn();
+    if (e.code === "KeyR") sandbox?.toggleFreeze();
+    if (e.code === "KeyC") sandbox?.clear();
     keys.add(e.code);
     if (e.code === "KeyF") fly = !fly;
     if (e.code === "BracketLeft" || e.code === "BracketRight") {
@@ -219,7 +243,7 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
         s.mesh.position.addScaledVector(s.dir, step);
         s.flown += step;
         const q = s.mesh.position;
-        hit = q.y <= 0.05 || (q.y < cfg.eyeY * 1.3 && solidAt(q.x, q.z)) || s.flown > 14 * unit;
+        hit = q.y <= 0.05 || (q.y < cfg.eyeY * 1.3 && solidAt(q.x, q.z)) || s.flown > 14 * unit || (sandbox?.hitsProp(q) ?? false);
       }
       if (hit) {
         blastAt(s.mesh.position.clone());
@@ -238,6 +262,7 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
         blasts.splice(i, 1);
       }
     }
+    sandbox?.update(dt);
     kick = Math.max(0, kick - 6 * dt);
     gun.position.z = -0.45 + 0.08 * kick;
     gun.rotation.x = 0.15 * kick;
@@ -253,6 +278,12 @@ export function createWorld(host: HTMLElement, url: string, cfg: WorldConfig, ev
     },
     dispose: () => {
       renderer.setAnimationLoop(null);
+      disposed = true;
+      sandbox?.dispose();
+      document.removeEventListener("mousedown", onGrab);
+      document.removeEventListener("mouseup", onRelease);
+      document.removeEventListener("wheel", onWheel);
+      document.removeEventListener("contextmenu", onMenu);
       document.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
