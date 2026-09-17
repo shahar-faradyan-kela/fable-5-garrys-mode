@@ -13,6 +13,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: true,
+    allowedHosts: true, // lets a public tunnel reach the dev server when the venue Wi-Fi blocks phone-to-laptop
     port: 5173,
     strictPort: true,
     // The phone talks to the web server only; it forwards to FastAPI. No CORS, no second address to reach.
