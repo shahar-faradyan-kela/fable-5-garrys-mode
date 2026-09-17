@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,13 +23,14 @@ WORLDS_DIR = BASE_DIR.parent / "assets" / "worlds"
 DATA_DIR.mkdir(exist_ok=True)
 
 MAX_DURATION_SECONDS = 180
-MIN_SHORT_SIDE = 1080
+MIN_SHORT_SIDE = 720
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif"}
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -41,7 +42,7 @@ app.mount("/files", StaticFiles(directory=str(DATA_DIR)), name="files")
 
 
 @app.post("/api/jobs", status_code=201)
-async def create_job(video: UploadFile = File(...)):
+async def create_job(request: Request, video: UploadFile = File(...)):
     job_id = uuid.uuid4().hex[:12]
     job_dir = DATA_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -51,9 +52,10 @@ async def create_job(video: UploadFile = File(...)):
     with open(video_path, "wb") as f:
         shutil.copyfileobj(video.file, f)
 
-    duration, width, height = probe_video(str(video_path))
+    is_photo = (video.content_type or "").startswith("image/") or suffix.lower() in IMAGE_SUFFIXES
+    duration, width, height = (0.0, 0, 0) if is_photo else probe_video(str(video_path))
 
-    if os.environ.get("SKIP_VALIDATION") != "1":
+    if not is_photo and os.environ.get("SKIP_VALIDATION") != "1":
         if duration > MAX_DURATION_SECONDS:
             shutil.rmtree(job_dir, ignore_errors=True)
             return JSONResponse(
@@ -66,12 +68,21 @@ async def create_job(video: UploadFile = File(...)):
             shutil.rmtree(job_dir, ignore_errors=True)
             return JSONResponse(
                 status_code=400,
-                content={"error": f"Video resolution is {resolution} — please upload at least 1080p."},
+                content={"error": f"Video resolution is {resolution} — please upload at least 720p."},
             )
 
     JOBS[job_id] = Job(id=job_id)
-    asyncio.create_task(run_job(job_id, str(video_path), duration))
+    # Built from the request so a phone on the LAN gets URLs it can reach.
+    base_url = str(request.base_url).rstrip("/")
+    asyncio.create_task(run_job(job_id, str(video_path), duration, base_url, is_photo))
     return {"jobId": job_id}
+
+
+@app.get("/api/jobs/latest")
+async def get_latest_job():
+    if not JOBS:
+        return JSONResponse(status_code=404, content={"error": "no jobs yet"})
+    return list(JOBS.values())[-1]
 
 
 @app.get("/api/jobs/{job_id}")

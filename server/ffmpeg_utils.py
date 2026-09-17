@@ -82,3 +82,15 @@ def extract_frames(
     subprocess.run(cmd, capture_output=True, text=True, check=True)
 
     return sorted(glob.glob(os.path.join(out_dir, "frame_*.jpg")))
+
+
+def photo_to_frame(photo_path: str, out_dir: str) -> list[str]:
+    """A photo is the single frame: normalise it to a JPEG at most 1280 px wide."""
+    os.makedirs(out_dir, exist_ok=True)
+    out = os.path.join(out_dir, "frame_01.jpg")
+    cmd = [
+        get_ffmpeg_path(), "-y", "-i", photo_path,
+        "-vf", "scale='min(1280,iw)':-2", "-frames:v", "1", "-q:v", "3", out,
+    ]
+    subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return [out]

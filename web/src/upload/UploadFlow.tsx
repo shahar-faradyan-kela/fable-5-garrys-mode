@@ -84,7 +84,7 @@ export default function UploadFlow() {
           <input
             ref={inputRef}
             type="file"
-            accept="video/*"
+            accept="video/*,image/*"
             hidden
             disabled={uploading}
             onChange={(e) => {
@@ -93,7 +93,7 @@ export default function UploadFlow() {
             }}
           />
           <span className="dropzone-label">
-            {uploading ? "Uploading…" : "Drop a video here, or click to choose"}
+            {uploading ? "Uploading…" : "Drop a video or photo here, or click to choose"}
           </span>
         </label>
         {error && <p className="upload-error">{error}</p>}

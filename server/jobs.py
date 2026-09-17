@@ -2,12 +2,10 @@ import asyncio
 import os
 
 from claude_vision import analyze_scene
-from ffmpeg_utils import extract_frames
+from ffmpeg_utils import extract_frames, photo_to_frame
 from models import Job
 
 JOBS: dict[str, Job] = {}
-
-API_BASE = os.environ.get("PUBLIC_API_BASE", "http://localhost:8000")
 
 # Real stage: extracting. Staged stages: poses, training, compressing.
 # Durations are tuned so a typical short demo clip finishes well under 20s.
@@ -31,19 +29,22 @@ async def _tick_progress(job: Job, start: float, end: float, duration: float, st
         job.progress = start + (end - start) * i / steps
 
 
-async def run_job(job_id: str, video_path: str, duration_hint: float):
+async def run_job(job_id: str, video_path: str, duration_hint: float, base_url: str, is_photo: bool = False):
     job = JOBS[job_id]
     try:
         job.stage = "extracting"
         job.progress = STAGE_PROGRESS_BOUNDS["extracting"][0]
 
         frames_dir = os.path.join(os.path.dirname(video_path), "frames")
-        frame_paths = await asyncio.to_thread(
-            extract_frames, video_path, frames_dir, duration_hint
-        )
+        if is_photo:
+            frame_paths = await asyncio.to_thread(photo_to_frame, video_path, frames_dir)
+        else:
+            frame_paths = await asyncio.to_thread(
+                extract_frames, video_path, frames_dir, duration_hint
+            )
         job.progress = STAGE_PROGRESS_BOUNDS["extracting"][1]
         job.frames = [
-            f"{API_BASE}/files/{job_id}/frames/{os.path.basename(p)}" for p in frame_paths
+            f"{base_url}/files/{job_id}/frames/{os.path.basename(p)}" for p in frame_paths
         ]
 
         # Runs concurrently with the staged stages below. `scene` may land at any
@@ -66,7 +67,7 @@ async def run_job(job_id: str, video_path: str, duration_hint: float):
             start, end = STAGE_PROGRESS_BOUNDS[stage]
             await _tick_progress(job, start, end, STAGE_DURATIONS[stage])
 
-        job.splatUrl = f"{API_BASE}/files/worlds/{os.environ.get('DEMO_WORLD', 'room.splat')}"
+        job.splatUrl = f"{base_url}/files/worlds/{os.environ.get('DEMO_WORLD', 'room.splat')}"
         job.progress = 1.0
         job.stage = "done"
     except Exception as exc:
